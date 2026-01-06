@@ -1,121 +1,255 @@
-/* Encontrar quienes son los clientes que tienen facturas con
- importes promedio más alto. Mostrar a los 10 clientes con mayor
- importe promedio, mostrando el apellido del cliente, la cantidad
- de facturas a su nombre y el promedio de esas facturas. */
+/*
+Query:
+Which customers have the highest average spending per invoice?
 
-SELECT LastName, COUNT(InvoiceId), AVG(Total)
+Purpose:
+Identify high-value customers based on their average invoice amount.
+This can help detect premium clients who tend to make higher-value purchases, regardless of purchase frequency. 
+
+SQL concepts: 
+    - Aggregation with AVG, COUNT
+    - Top-N selection with ORDER BY + FETCH
+*/
+
+SELECT 
+    c.LastName              AS customer_name,
+    COUNT(i.InvoiceId)      AS total_invoices,
+    AVG(i.Total)            AS average_invoice
 FROM Customer c 
     INNER JOIN Invoice i ON c.CustomerId = i.CustomerId
-GROUP BY LastName
-ORDER BY AVG(Total) DESC    -- De mayor a menor promedio
-OFFSET 0 ROWS FETCH FIRST 10 ROWS ONLY
-;
--- GROUP BY, COUNT, ORDER BY, FETCH
+GROUP BY 
+    c.CustomerId, 
+    c.FirstName,
+    c.LastName
+ORDER BY average_invoice DESC    
+OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;
 
-/* Listar el nombre y la cantidad de tracks de los artistas con más de 50 tracks, 
- ordenado por cantidad de tracks de forma ascendente */
+/*
+Query: 
+Which artists have a large catalog size?
 
-SELECT ar.Name artist, COUNT(*) cant_track
+Purpose:
+Identify artists with more than 50 tracks, ordered by total number of tracks.
+This can help detect prolific artists or content-heavy catalogs. 
+
+SQL concepts:
+    - Aggregation with GROUP BY
+    - HAVING for aggregate filter
+*/
+
+SELECT 
+    ar.Name     AS artist_name, 
+    COUNT(*)    AS total_tracks
 FROM Track t
     INNER JOIN Album al ON t.AlbumId = al.AlbumId
     INNER JOIN Artist ar ON ar.ArtistId = al.ArtistId
-GROUP BY ar.Name
-HAVING COUNT(*) > 50  -- HAVING agrega restricciones a grupos
-ORDER BY cant_track
-;
---  GROUP BY, HAVING, ORDER BY
+GROUP BY 
+    ar.ArtistId, 
+    ar.Name
+HAVING COUNT(*) > 50
+ORDER BY total_tracks ASC;
 
-/* Usando consultas anidadas y la cláusula NOT EXISTS, seleccione
- nombre del track y composer de los tracks que nunca fueron facturados. */
+/*
+Query:
+Which tracks have never generated revenue?
 
-SELECT Name, Composer
+Purpose:
+Identify tracks that were never included in any invoice, which could indicate low popularity or unused catalog entries.
+
+SQL concepts:
+    - Correlated subquery
+    - Anti-join pattern with NOT EXISTS
+*/
+
+SELECT 
+    t.Name     AS track_name, 
+    t.Composer AS composer_name
 FROM Track t
 WHERE NOT EXISTS (
-    SELECT *
+    SELECT 1
     FROM InvoiceLine il
     WHERE il.TrackId = t.TrackId
 );
--- NOT EXISTS
 
-/* Encontrar los nombres de los tracks que están tanto en la playlist de nombre ‘Classical’ 
-como en la de nombre ‘Classical 101 - The Basics’ utilizando operaciones de conjuntos en SQL. */
+/*
+Query:
+Which tracks belong to more than one playlist?
 
-(SELECT t.TrackId, t.Name 
-FROM Track t INNER JOIN PlaylistTrack pt ON t.TrackId = pt.TrackId 
-             INNER JOIN Playlist p ON pt.PlaylistId = p.PlaylistId
-WHERE p.Name = 'Classical')
+Purpose:
+Identify tracks that are shared between two specific playlists.
+This can help detect overlapping content across playlists.
+
+Playlist names are used as examples and can be replaced to analyze different playlist combinations.
+
+SQL concepts:
+    - Set operations like INTERSECT
+
+*/
+
+(
+    SELECT 
+        t.TrackId   AS track_id, 
+        t.Name      AS track_name 
+    FROM Track t 
+        INNER JOIN PlaylistTrack pt ON t.TrackId = pt.TrackId 
+        INNER JOIN Playlist p       ON pt.PlaylistId = p.PlaylistId
+    WHERE p.Name = 'Classical'
+)
     INTERSECT
-(SELECT t.TrackId, t.Name 
-FROM Track t INNER JOIN PlaylistTrack pt ON t.TrackId = pt.TrackId 
-             INNER JOIN Playlist p ON pt.PlaylistId = p.PlaylistId
-WHERE p.Name = 'Classical 101 - The Basics')
-; 
--- Operaciones de Conjuntos en SQL: Intersección
+(
+    SELECT 
+        t.TrackId   AS track_id, 
+        t.Name      AS track_name  
+    FROM Track t 
+        INNER JOIN PlaylistTrack pt ON t.TrackId = pt.TrackId 
+        INNER JOIN Playlist p       ON pt.PlaylistId = p.PlaylistId
+    WHERE p.Name = 'Classical 101 - The Basics'
+); 
 
-/* Obtener los nombres de los tracks, sus compositores, el álbum y el artista al que pertenecen de todos
-aquellos tracks que están en facturas con fecha mayor a cuatro años. (4 años de antiguedad al menos ?) */
+/*
+Query:
+Which tracks have not been purchased recently?
 
-SELECT t.Name, Composer, Title, ar.Name
-FROM Track t, Album al, Artist ar, Invoice i, InvoiceLine il
-WHERE t.AlbumId = al.AlbumId 
-    AND al.ArtistId = ar.ArtistId
-    AND il.TrackId = t.TrackId
-    AND i.InvoiceId = il.InvoiceId
-    AND i.InvoiceDate < DATEADD(YEAR, -4, GETDATE())  -- DATEADD(interval, number, date)
-;
--- DATEADD
+Purpose:
+Identify tracks whose most recent purchase occurred more than four years ago.
+This helps detect catalog entries with no recent commercial activity.
 
-/* Obtener las playlists más caras. (Ayuda: primero obtener el ‘precio’ de cada playlist)*/
-WITH Precios AS (
-    SELECT pt.PlaylistId, SUM(t.UnitPrice) precio
+SQL concepts:
+    - Time-based aggregation
+    - HAVING with MAX
+*/
+
+SELECT 
+    t.Name      AS track_name,
+    t.Composer  AS composer_name,
+    al.Title     AS album_title, 
+    ar.Name     AS artist_name
+FROM Track t
+    INNER JOIN Album al         ON t.AlbumId = al.AlbumId
+    INNER JOIN Artist ar        ON al.ArtistId = ar.ArtistId
+    INNER JOIN InvoiceLine il   ON t.TrackId = il.TrackId
+    INNER JOIN Invoice i        ON il.InvoiceId = i.InvoiceId
+GROUP BY 
+    t.TrackId,
+    t.Name,
+    t.Composer,
+    al.Title,
+    ar.Name
+HAVING MAX(i.InvoiceDate) < DATEADD(YEAR, -4, GETDATE());
+
+/*
+Query:
+Which are the most expensive playlists?
+
+Purpose:
+Identify the playlists with the highest total value based on track prices.
+This can help compare playlist value and support pricing or promotional strategies.
+
+SQL Concepts:
+    - Common Table Expresion (CTE)
+    - Aggregation with SUM
+    - Scalar subquery with MAX
+
+*/
+
+WITH playlist_total_value AS (
+    SELECT 
+        pt.PlaylistId       AS playlist_id, 
+        SUM(t.UnitPrice)    AS total_value
     FROM PlaylistTrack pt
-    JOIN Track t ON pt.TrackId = t.TrackId
+        INNER JOIN Track t ON pt.TrackId = t.TrackId
     GROUP BY pt.PlaylistId
 )
-SELECT pr.Precio, p.*
-FROM Precios pr
-JOIN Playlist p ON pr.PlaylistId = p.PlaylistId
-WHERE pr.Precio = (SELECT MAX(precio) FROM Precios)
---  WITH  
+SELECT 
+    p.PlaylistId, 
+    p.Name              AS playlist_name,
+    ptv.total_value     
+FROM playlist_total_value ptv
+    INNER JOIN Playlist p ON ptv.playlist_id = p.PlaylistId
+WHERE ptv.total_value = (
+    SELECT MAX(total_value)
+    FROM playlist_total_value
+);
 
-/* 
-Encontrar al máximo fan de Iron Maiden, al que definiremos como aquel 
- que tenga más líneas de factura vinculadas con tracks de la banda. 
- Mostrar el apellido de dicho usuario y la cantidad de líneas de factura
- vinculadas con tracks de la banda. */
+/*
+Query:
+Who is the biggest fan of an artist?
 
-SELECT LastName, COUNT(InvoiceLineId) cantidad
-    FROM InvoiceLine il INNER JOIN Invoice i ON il.InvoiceId = i.InvoiceId
-                        INNER JOIN Customer c ON i.CustomerId = c.CustomerId
-                        INNER JOIN Track t ON il.TrackId = t.TrackId
-                        INNER JOIN Album al ON t.AlbumId = al.AlbumId
-                        INNER JOIN Artist ar ON al.ArtistId = ar.ArtistId 
-    WHERE ar.Name = 'Iron Maiden'
-    GROUP BY LastName
-    ORDER BY cantidad DESC
-    OFFSET 0 ROWS FETCH FIRST 1 ROW ONLY
+Purpose:
+Find the customer with the highest number of invoice lines associated with tracks from a specific artist.
+This can help detect highly engaged customers for targeted marketing, loyalty programs, or personalized recommendations.
+
+Artist name is used as example and can be replaced to analyze different artists.
+
+
+SQL Concepts:
+    - Aggregation with COUNT
+    - Top-N selection
+    - Multi-table joins
+
+*/
+
+SELECT 
+    c.LastName              AS customer_name,
+    COUNT(InvoiceLineId)    AS total_invoice_lines
+    FROM InvoiceLine il 
+        INNER JOIN Invoice i ON il.InvoiceId = i.InvoiceId
+        INNER JOIN Customer c ON i.CustomerId = c.CustomerId
+        INNER JOIN Track t ON il.TrackId = t.TrackId
+        INNER JOIN Album al ON t.AlbumId = al.AlbumId
+        INNER JOIN Artist ar ON al.ArtistId = ar.ArtistId 
+    WHERE ar.Name = 'Iron Maiden' 
+    GROUP BY 
+        c.CustomerID, 
+        c.FirstName, 
+        c.LastName
+    ORDER BY total_invoice_lines DESC
+    OFFSET 0 ROWS FETCH NEXT 1 ROW ONLY
 ; 
--- storytelling
 
-/* Obtener el dinero recaudado por cada empleado durante cada año. 
- ¿Cómo extraer un campo de una fecha? 
- YEAR(), MONTH(), DAY() or Datepart(date, ...) ! */
+/*
+Query:
+How much revenue does each employee generate per year?
 
--- !
-SELECT DATEPART(year, i.InvoiceDate) Año, e.LastName, SUM(i.Total) Recaudado 
+Purpose: 
+Calculate the total invoice amount associated with customers supported by each employee, grouped by year.
+This can help evaluate employee performance over time and compare revenue contribution across employees.
+
+SQL concepts:
+    - Time-based grouping
+*/
+
+SELECT 
+    YEAR(i.InvoiceDate)           AS invoice_year, 
+    e.LastName                    AS employee_name, 
+    SUM(i.Total)                  AS collected
 FROM Employee e 
-    INNER JOIN Customer c ON c.SupportRepId = e.EmployeeId
-    INNER JOIN Invoice i ON i.CustomerId = c.CustomerId
-GROUP BY YEAR(i.InvoiceDate), e.LastName 
+    INNER JOIN Customer c   ON c.SupportRepId = e.EmployeeId
+    INNER JOIN Invoice i    ON i.CustomerId = c.CustomerId
+GROUP BY 
+    YEAR(i.InvoiceDate),
+    e.LastName
+;
 
-/* 
-Para cada track de género “Rock And Roll” muestre el nombre del track y 
-la cantidad de invoice_lines en las que aparece, asegurándose de que 
-si un track nunca estuvo en una factura se devuelva cero. */
+/*
+Query: 
+How many times has each track been purchased?
 
-SELECT t.Name, COUNT(InvoiceLineId)
-FROM Track t INNER JOIN Genre g ON g.GenreId = t.GenreId
-             LEFT JOIN InvoiceLine il ON il.TrackId = t.TrackId
-WHERE g.Name = 'Rock And Roll'
-GROUP BY t.Name; 
--- Outer Join
+Purpose:
+Display the amount of invoice lines in which a track appears.
+This can help identify popular tracks as well as tracks with no sales.
+
+SQL concepts:
+    - Outer join for row preservation
+    - Aggregation 
+
+*/
+
+SELECT 
+    t.Name                  AS track_name, 
+    COUNT(InvoiceLineId)    AS total_invoice_lines
+FROM Track t
+    LEFT JOIN InvoiceLine il    ON il.TrackId = t.TrackId
+GROUP BY 
+    t.TrackID, 
+    t.Name; 
